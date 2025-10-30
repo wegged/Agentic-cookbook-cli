@@ -1,0 +1,412 @@
+# Agent Cookbook CLI
+
+A CLI tool that manages AGENTS.md files across a codebase by downloading templates from a repository and intelligently merging updates while preserving project-specific customizations.
+
+## Features
+
+- **Template Path Variables** - Support for dynamic path resolution with `{{variable}}` syntax
+- **Initialize Project** - Seed your project with AGENTS.md files from a template repository
+- **Update from Repository** - Pull latest template changes while preserving your customizations
+- **Smart Merging** - Automatically preserve project-specific content during updates
+- **Validation** - Ensure AGENTS.md files follow expected structure
+
+## Installation
+
+### Global Installation
+
+```bash
+npm install -g agent-cookbook-cli
+```
+
+### Project-specific Installation (Recommended)
+
+```bash
+npm install --save-dev agent-cookbook-cli
+```
+
+Then add to your `package.json` scripts:
+
+```json
+{
+  "scripts": {
+    "agents:init": "agent-cookbook init",
+    "agents:update": "agent-cookbook update",
+    "agents:validate": "agent-cookbook validate"
+  }
+}
+```
+
+## Quick Start
+
+### 1. Initialize Your Project
+
+```bash
+agent-cookbook init --interactive
+```
+
+This will prompt you for:
+- Template repository URL
+- Application name
+- Namespace (optional)
+- API version (optional)
+
+### 2. Configure Mappings
+
+Edit the generated `.agentcookbook.yaml` file to add template mappings:
+
+```yaml
+repository:
+  url: "git@github.com:yourteam/agent-templates.git"
+  branch: "main"
+
+variables:
+  appName: "my-awesome-app"
+  namespace: "com.company"
+  apiVersion: "v1"
+
+mappings:
+  - name: "Backend API"
+    template: "backend/api/AGENTS.md"
+    targetPath: "src/api/{{appName}}/AGENTS.md"
+
+  - name: "Frontend Components"
+    template: "frontend/components/AGENTS.md"
+    targetPath: "src/frontend/{{appName}}/components/AGENTS.md"
+```
+
+### 3. Create AGENTS.md Files
+
+```bash
+agent-cookbook init
+```
+
+### 4. Update Templates
+
+When the template repository is updated:
+
+```bash
+agent-cookbook update
+```
+
+Your project-specific content (after the `<!-- PROJECT_SPECIFIC -->` delimiter) will be preserved!
+
+## Commands
+
+### `init`
+
+Initialize project with AGENTS.md templates.
+
+```bash
+agent-cookbook init [options]
+```
+
+**Options:**
+- `-r, --repo <url>` - Template repository URL
+- `-c, --config <path>` - Path to config file
+- `-f, --force` - Overwrite existing files
+- `-i, --interactive` - Interactive setup (default)
+- `--dry-run` - Show what would be created
+
+**Example:**
+```bash
+agent-cookbook init --repo git@github.com:team/templates.git
+```
+
+### `update`
+
+Update AGENTS.md files from template repository.
+
+```bash
+agent-cookbook update [templates...] [options]
+```
+
+**Arguments:**
+- `templates` - Specific template names to update (optional)
+
+**Options:**
+- `-s, --strategy <type>` - Merge strategy (preserve-project|three-way)
+- `-f, --force` - Overwrite without merging
+- `--dry-run` - Show what would be updated
+- `--conflict <action>` - Conflict resolution (manual|auto-template|auto-project)
+
+**Examples:**
+```bash
+# Update all templates
+agent-cookbook update
+
+# Update specific templates
+agent-cookbook update "Backend API" "Frontend Components"
+
+# Dry run to see what would change
+agent-cookbook update --dry-run
+```
+
+### `validate`
+
+Validate AGENTS.md files structure.
+
+```bash
+agent-cookbook validate [options]
+```
+
+**Options:**
+- `--fix` - Auto-fix issues where possible
+- `--strict` - Fail on warnings (useful for CI/CD)
+
+**Example:**
+```bash
+# Validate all files
+agent-cookbook validate
+
+# Validate and auto-fix issues
+agent-cookbook validate --fix
+
+# Strict validation for CI/CD
+agent-cookbook validate --strict
+```
+
+### `sync`
+
+Check sync status or sync specific templates.
+
+```bash
+agent-cookbook sync [template] [options]
+```
+
+**Arguments:**
+- `template` - Template name to check/sync (optional)
+
+**Options:**
+- `--check-only` - Only check if files are in sync
+- `-f, --force` - Force sync even if up to date
+
+**Examples:**
+```bash
+# Check all templates sync status
+agent-cookbook sync --check-only
+
+# Sync specific template
+agent-cookbook sync "Backend API"
+```
+
+### `config`
+
+Manage configuration and variables.
+
+```bash
+agent-cookbook config <action> [args...]
+```
+
+**Actions:**
+- `get <key>` - Get a configuration value
+- `list` - List all configuration
+- `set-variable <key> <value>` - Set a path variable
+- `add-mapping` - Add a new template mapping (interactive)
+- `remove-mapping <name>` - Remove a template mapping
+
+**Examples:**
+```bash
+# List all configuration
+agent-cookbook config list
+
+# Get repository URL
+agent-cookbook config get repository.url
+
+# Set a variable
+agent-cookbook config set-variable appName new-service
+
+# Add a new mapping interactively
+agent-cookbook config add-mapping
+
+# Remove a mapping
+agent-cookbook config remove-mapping "Backend API"
+```
+
+## Configuration File
+
+The `.agentcookbook.yaml` file controls how the CLI operates:
+
+```yaml
+# Template repository configuration
+repository:
+  url: "git@github.com:yourteam/agent-templates.git"
+  branch: "main"
+
+# Path template variables
+variables:
+  appName: "my-awesome-app"
+  namespace: "com.company"
+  apiVersion: "v1"
+
+# Template mappings
+mappings:
+  - name: "Backend API"
+    template: "backend/api/AGENTS.md"
+    targetPath: "src/api/{{appName}}/AGENTS.md"
+
+# Merge configuration
+merge:
+  delimiter: "<!-- PROJECT_SPECIFIC -->"
+  strategy: "preserve-project"
+  conflictResolution: "manual"
+
+# Validation rules
+validation:
+  requireDelimiter: true
+  maxFileSize: "50kb"
+  allowedSections:
+    - "Overview"
+    - "Folder Purpose"
+    - "Agent Instructions"
+    - "Project Specific"
+```
+
+## AGENTS.md File Structure
+
+Each AGENTS.md file follows this structure:
+
+```markdown
+# Agent Instructions for [Folder Name]
+
+## Overview
+Brief description of this folder's purpose.
+
+## Folder Purpose
+What code lives here and why.
+
+## Agent Instructions
+
+### Code Style
+- Style guidelines
+- Naming conventions
+
+### Testing Requirements
+- What tests are needed
+- Testing patterns
+
+<!-- PROJECT_SPECIFIC -->
+
+## Project-Specific Notes
+
+[This section is preserved during updates]
+
+### Custom Requirements
+- Project-specific rules
+- Team conventions
+```
+
+Everything **before** the delimiter (`<!-- PROJECT_SPECIFIC -->`) comes from the template and will be updated when you run `agent-cookbook update`.
+
+Everything **after** the delimiter is your project-specific content and will be preserved during updates.
+
+## Path Variables
+
+Use `{{variableName}}` syntax in target paths to create dynamic paths:
+
+```yaml
+variables:
+  appName: "payment-service"
+  namespace: "com.company.payments"
+
+mappings:
+  - name: "API Handler"
+    template: "backend/api/AGENTS.md"
+    targetPath: "src/api/{{appName}}/AGENTS.md"
+    # Resolves to: src/api/payment-service/AGENTS.md
+
+  - name: "Database"
+    template: "backend/database/AGENTS.md"
+    targetPath: "src/database/{{namespace}}/AGENTS.md"
+    # Resolves to: src/database/com.company.payments/AGENTS.md
+```
+
+## Workflow Examples
+
+### First-Time Setup
+
+```bash
+# Initialize with interactive prompts
+cd my-project
+agent-cookbook init --interactive
+
+# Edit .agentcookbook.yaml to add mappings
+vim .agentcookbook.yaml
+
+# Create AGENTS.md files
+agent-cookbook init
+```
+
+### Daily Development
+
+Work in your code folders and add project-specific notes to AGENTS.md:
+
+```markdown
+<!-- PROJECT_SPECIFIC -->
+
+## Project-Specific Notes
+
+### Database Connection
+- Uses PostgreSQL on port 5432
+- Connection pool size: 20
+
+### Authentication
+- JWT tokens with 24h expiry
+- Refresh tokens stored in Redis
+```
+
+### Pulling Template Updates
+
+When your team updates the template repository:
+
+```bash
+# Pull latest templates
+agent-cookbook update
+
+# Your custom notes are preserved!
+```
+
+### CI/CD Integration
+
+Add validation to your CI pipeline:
+
+```bash
+# In your CI/CD script
+agent-cookbook validate --strict
+```
+
+## Development
+
+### Build from Source
+
+```bash
+# Clone the repository
+git clone git@github.com:yourteam/agent-cookbook-cli.git
+cd agent-cookbook-cli
+
+# Install dependencies
+npm install
+
+# Build
+npm run build
+
+# Run locally
+npm run dev -- init --help
+```
+
+### Run Tests
+
+```bash
+npm test
+```
+
+## License
+
+MIT
+
+## Contributing
+
+See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for detailed architecture and implementation details.
+
+## Support
+
+For issues and questions, please open an issue on GitHub.
