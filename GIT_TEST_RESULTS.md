@@ -340,11 +340,42 @@ Mappings:
 - ✅ Git pull/fetch operations
 - ✅ Production-ready testing
 
+### ✅ Test 10: Validation with Folder Mappings
+
+**Test**: Validate AGENTS.md files when configuration includes folder mappings
+
+**Previous Issue**: EISDIR error when validation tried to read folder-type mappings as files
+
+**Fix Applied**: Updated validation command to skip folder-type mappings (line 45 in validate.ts)
+
+**Result**: SUCCESS ✅
+
+**Command**: `agent-cookbook validate`
+
+**Output**:
+```
+Validating AGENTS.md Files
+
+⚠ Found 4 warnings:
+  - src/api/payment-service/AGENTS.md: Missing recommended section: Project Specific
+  - src/database/payment-service/AGENTS.md: Missing recommended section: Project Specific
+  - src/graphql/payment-service/AGENTS.md: Missing recommended section: Project Specific
+  - src/frontend/payment-service/AGENTS.md: Missing recommended section: Project Specific
+
+ℹ 4 files passed validation
+```
+
+**Verification**:
+- ✅ No EISDIR errors
+- ✅ Folder mappings correctly skipped
+- ✅ All 4 file mappings validated
+- ✅ Appropriate warnings shown
+
 ## Issues Found
 
 ### None! ✅
 
-All git operations work flawlessly:
+All git operations and validation work flawlessly:
 - Clone from git URL
 - Pull updates
 - Multi-branch support
@@ -352,6 +383,7 @@ All git operations work flawlessly:
 - Recipe operations
 - Path variable resolution
 - Smart merge operations
+- Validation with folder mappings
 
 ## Recommendations for Production Use
 
@@ -419,13 +451,15 @@ All git operations tested and verified:
 - ✅ Smart merge with git-sourced templates
 - ✅ Branch filtering for targeted updates
 - ✅ Concurrent branch operations
+- ✅ Validation with folder mappings
 
 **No issues found** - All features work as designed with proper git repositories!
 
 ## Next Steps
 
 1. ✅ Git integration fully tested
-2. ⏭️ Test with remote GitHub repository
-3. ⏭️ Test propose command with actual PR creation
-4. ⏭️ Add integration tests for git operations
-5. ⏭️ Document git workflows in user guide
+2. ✅ Validation with folder mappings fixed and tested
+3. ⏭️ Test with remote GitHub repository
+4. ⏭️ Test propose command with actual PR creation
+5. ⏭️ Add integration tests for git operations
+6. ⏭️ Document git workflows in user guide
