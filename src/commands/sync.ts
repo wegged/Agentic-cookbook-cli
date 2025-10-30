@@ -28,29 +28,37 @@ export async function syncCommand(
 
     const config = await configLoader.load();
 
-    // Sync template repository
-    if (!options.checkOnly) {
-      Logger.step("Fetching latest templates");
-      const stopLoading = Logger.loading("Updating repository...");
-
-      const templateManager = new TemplateManager();
-      try {
-        await templateManager.syncRepository(
-          config.repository.url,
-          config.repository.branch
-        );
-        stopLoading();
-        Logger.success("Template repository updated");
-      } catch (error: any) {
-        stopLoading();
-        Logger.error(`Failed to update repository: ${error.message}`);
-        process.exit(1);
-      }
-    }
-
     const pathResolver = new PathResolver(config.variables);
     const merger = new TemplateMerger(config.merge.delimiter);
     const templateManager = new TemplateManager();
+
+    // Collect all unique branches from mappings
+    const branches = new Set<string>();
+    for (const mapping of config.mappings) {
+      const branch = mapping.branch || config.repository.branch;
+      branches.add(branch);
+    }
+
+    // Sync template repository for each branch (if not check-only)
+    if (!options.checkOnly) {
+      Logger.step("Fetching latest templates");
+
+      for (const branch of Array.from(branches)) {
+        const stopLoading = Logger.loading(`Updating repository (branch: ${branch})...`);
+        try {
+          await templateManager.syncRepository(
+            config.repository.url,
+            branch
+          );
+          stopLoading();
+          Logger.success(`Template repository updated (branch: ${branch})`);
+        } catch (error: any) {
+          stopLoading();
+          Logger.error(`Failed to update repository branch ${branch}: ${error.message}`);
+          process.exit(1);
+        }
+      }
+    }
 
     // Filter to specific template if requested
     let mappingsToCheck = config.mappings;
@@ -90,11 +98,15 @@ export async function syncCommand(
           continue;
         }
 
+        // Determine which branch to use for this mapping
+        const branch = mapping.branch || config.repository.branch;
+
         // Read both local and template content
         const localContent = await fs.readFile(resolved.resolved, "utf-8");
         const templateContent = await templateManager.readTemplate(
           config.repository.url,
-          mapping.template
+          mapping.template,
+          branch
         );
 
         // Compare template sections only

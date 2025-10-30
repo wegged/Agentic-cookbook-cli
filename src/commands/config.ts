@@ -118,6 +118,9 @@ async function handleList(configLoader: ConfigLoader): Promise<void> {
     for (const mapping of config.mappings) {
       Logger.listItem(`${mapping.name}`, 1);
       Logger.listItem(`Template: ${mapping.template}`, 2);
+      const branch = mapping.branch || config.repository.branch;
+      const branchLabel = mapping.branch ? branch : `${branch} (default)`;
+      Logger.listItem(`Branch: ${branchLabel}`, 2);
       Logger.listItem(`Target: ${mapping.targetPath}`, 2);
     }
   }
@@ -157,6 +160,8 @@ async function handleSetVariable(
  * Add a new template mapping (interactive)
  */
 async function handleAddMapping(configLoader: ConfigLoader): Promise<void> {
+  const config = await configLoader.load();
+
   const answers = await inquirer.prompt([
     {
       type: "input",
@@ -176,14 +181,23 @@ async function handleAddMapping(configLoader: ConfigLoader): Promise<void> {
       message: "Target path (in project, can use {{variables}}):",
       validate: (input: string) => (input ? true : "Target path is required"),
     },
+    {
+      type: "input",
+      name: "branch",
+      message: `Branch (optional, default: ${config.repository.branch}):`,
+    },
   ]);
 
-  const config = await configLoader.load();
   const newMapping: TemplateMapping = {
     name: answers.name,
     template: answers.template,
     targetPath: answers.targetPath,
   };
+
+  // Only add branch if provided (otherwise will use default)
+  if (answers.branch && answers.branch.trim()) {
+    newMapping.branch = answers.branch.trim();
+  }
 
   config.mappings.push(newMapping);
   await configLoader.save(config);

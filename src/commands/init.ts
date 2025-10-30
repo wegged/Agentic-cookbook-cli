@@ -7,6 +7,7 @@ import { TemplateManager } from "../core/template-manager";
 import { PathResolver } from "../core/path-resolver";
 import { TemplateMerger } from "../core/merger";
 import { Logger } from "../utils/logger";
+import { FileCopyOptions } from "../core/file-copier";
 
 /**
  * Initialize command - Set up project with AGENTS.md files
@@ -79,23 +80,34 @@ export async function initCommand(options: InitOptions): Promise<void> {
     await configLoader.create(repoUrl, variables);
     Logger.success(`Configuration saved to ${configLoader.getConfigPath()}`);
 
-    // Sync template repository
-    Logger.step("Downloading templates from repository");
-    const stopLoading = Logger.loading("Cloning repository...");
-
-    const templateManager = new TemplateManager();
-    try {
-      await templateManager.syncRepository(repoUrl);
-      stopLoading();
-      Logger.success("Templates downloaded");
-    } catch (error: any) {
-      stopLoading();
-      Logger.error(`Failed to clone repository: ${error.message}`);
-      process.exit(1);
-    }
-
     // Load configuration (now with defaults)
     const config = await configLoader.load();
+
+    // Collect all unique branches from mappings
+    const branches = new Set<string>();
+    branches.add(config.repository.branch); // Always include default branch
+    for (const mapping of config.mappings) {
+      if (mapping.branch) {
+        branches.add(mapping.branch);
+      }
+    }
+
+    // Sync template repository for each branch
+    Logger.step("Downloading templates from repository");
+    const templateManager = new TemplateManager();
+
+    for (const branch of Array.from(branches)) {
+      const stopLoading = Logger.loading(`Cloning repository (branch: ${branch})...`);
+      try {
+        await templateManager.syncRepository(repoUrl, branch);
+        stopLoading();
+        Logger.success(`Templates downloaded from branch: ${branch}`);
+      } catch (error: any) {
+        stopLoading();
+        Logger.error(`Failed to clone repository branch ${branch}: ${error.message}`);
+        process.exit(1);
+      }
+    }
 
     // If no mappings defined, prompt to create some
     if (config.mappings.length === 0) {
@@ -116,41 +128,121 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
     for (const mapping of config.mappings) {
       try {
-        // Resolve target path
-        const resolved = pathResolver.resolvePath(mapping.targetPath);
+        // Determine which branch to use for this mapping
+        const branch = mapping.branch || config.repository.branch;
 
-        // Check if file already exists
-        if (await fs.pathExists(resolved.resolved)) {
-          if (!options.force) {
+        // Check if this is a folder mapping
+        const isFolder = mapping.type === "folder";
+
+        if (isFolder) {
+          // Handle folder mapping
+          const fileCopyOptions: FileCopyOptions = {
+            recursive: mapping.recursive !== false,
+            preserveStructure: mapping.preserveStructure !== false,
+            include: mapping.include || ["**/AGENTS.md", "**/AGENTS.*"],
+            exclude: mapping.exclude || ["**/node_modules/**", "**/.git/**"],
+          };
+
+          // Get list of files from template folder
+          const templateFiles = await templateManager.listFolderFiles(
+            config.repository.url,
+            mapping.template,
+            branch,
+            fileCopyOptions
+          );
+
+          if (templateFiles.length === 0) {
             Logger.warning(
-              `Skipping ${Logger.formatPath(resolved.resolved)} (already exists)`
+              `No files found in template folder: ${mapping.template}`
             );
-            skippedCount++;
             continue;
           }
-        }
 
-        // Read template
-        const templateContent = await templateManager.readTemplate(
-          config.repository.url,
-          mapping.template
-        );
+          // Process each file in the folder
+          for (const relativeFilePath of templateFiles) {
+            // Resolve target base path
+            const resolvedBase = pathResolver.resolvePath(mapping.targetPath);
 
-        // Ensure delimiter is present
-        const contentWithDelimiter = merger.ensureDelimiter(templateContent);
+            // Build target path preserving structure
+            const targetPath = path.join(
+              resolvedBase.resolved,
+              relativeFilePath
+            );
 
-        // Create directory if needed
-        await fs.ensureDir(path.dirname(resolved.resolved));
+            // Check if file already exists
+            if (await fs.pathExists(targetPath)) {
+              if (!options.force) {
+                Logger.warning(
+                  `Skipping ${Logger.formatPath(targetPath)} (already exists)`
+                );
+                skippedCount++;
+                continue;
+              }
+            }
 
-        // Write file
-        if (options.dryRun) {
-          Logger.info(`Would create: ${Logger.formatPath(resolved.resolved)}`);
+            // Read template file content
+            const templateFilePath = path.join(mapping.template, relativeFilePath);
+            const templateContent = await templateManager.readTemplate(
+              config.repository.url,
+              templateFilePath,
+              branch
+            );
+
+            // Ensure delimiter is present
+            const contentWithDelimiter = merger.ensureDelimiter(templateContent);
+
+            // Create directory if needed
+            await fs.ensureDir(path.dirname(targetPath));
+
+            // Write file
+            if (options.dryRun) {
+              Logger.info(`Would create: ${Logger.formatPath(targetPath)}`);
+            } else {
+              await fs.writeFile(targetPath, contentWithDelimiter, "utf-8");
+              Logger.success(`Created ${Logger.formatPath(targetPath)}`);
+            }
+
+            createdCount++;
+          }
         } else {
-          await fs.writeFile(resolved.resolved, contentWithDelimiter, "utf-8");
-          Logger.success(`Created ${Logger.formatPath(resolved.resolved)}`);
-        }
+          // Handle single file mapping (default behavior)
+          // Resolve target path
+          const resolved = pathResolver.resolvePath(mapping.targetPath);
 
-        createdCount++;
+          // Check if file already exists
+          if (await fs.pathExists(resolved.resolved)) {
+            if (!options.force) {
+              Logger.warning(
+                `Skipping ${Logger.formatPath(resolved.resolved)} (already exists)`
+              );
+              skippedCount++;
+              continue;
+            }
+          }
+
+          // Read template from the appropriate branch
+          const templateContent = await templateManager.readTemplate(
+            config.repository.url,
+            mapping.template,
+            branch
+          );
+
+          // Ensure delimiter is present
+          const contentWithDelimiter = merger.ensureDelimiter(templateContent);
+
+          // Create directory if needed
+          await fs.ensureDir(path.dirname(resolved.resolved));
+
+          // Write file
+          if (options.dryRun) {
+            Logger.info(`Would create: ${Logger.formatPath(resolved.resolved)}`);
+          } else {
+            await fs.writeFile(resolved.resolved, contentWithDelimiter, "utf-8");
+            Logger.success(`Created ${Logger.formatPath(resolved.resolved)}`);
+          }
+
+          createdCount++;
+        }
       } catch (error: any) {
         Logger.error(
           `Failed to create ${mapping.name}: ${error.message}`

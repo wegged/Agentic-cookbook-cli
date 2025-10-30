@@ -10,3 +10,4 @@ coverage/
 *.swo
 templates/
 .agent-cookbook-cache/
+.recipes/

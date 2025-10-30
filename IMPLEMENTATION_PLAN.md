@@ -11,6 +11,10 @@ A CLI tool that manages AGENTS.md files across a codebase by downloading templat
 3. **Update from Repository** - Pull latest template changes
 4. **Smart Merging** - Preserve project-specific content during updates
 5. **Validation** - Ensure AGENTS.md files follow expected structure
+6. **Recipes** - Reusable instructions for common tasks using internal services
+7. **Propose Changes** - Push local changes back to template repo and create PRs
+8. **Nested Folder Support** - Copy entire folder structures, not just single files
+9. **Branch-aware Mappings** - Map templates to specific branches in git repo
 
 ## Technical Stack
 
@@ -34,13 +38,16 @@ agent-cookbook-cli/
 │   │   ├── update.ts         # Pull and merge updates
 │   │   ├── sync.ts           # Sync specific templates
 │   │   ├── validate.ts       # Validate AGENTS.md files
-│   │   └── config.ts         # Manage configuration
+│   │   ├── config.ts         # Manage configuration
+│   │   ├── recipe.ts         # Manage and run recipes
+│   │   └── propose.ts        # Propose changes back to template repo
 │   ├── core/
 │   │   ├── template-manager.ts   # Template repository operations
 │   │   ├── path-resolver.ts      # Handle templatable paths
 │   │   ├── merger.ts             # Smart merge logic
 │   │   ├── config-loader.ts      # Load and validate config
-│   │   └── file-manager.ts       # File I/O operations
+│   │   ├── recipe-manager.ts     # Recipe operations
+│   │   └── file-copier.ts        # Recursive file/folder operations
 │   ├── utils/
 │   │   ├── logger.ts         # Colored console output
 │   │   ├── git-helper.ts     # Git operations wrapper
@@ -49,6 +56,7 @@ agent-cookbook-cli/
 │   │   └── index.ts          # TypeScript definitions
 │   └── index.ts              # CLI entry point
 ├── templates/                # Local cache of templates (gitignored)
+├── .recipes/                 # Local recipes cache (gitignored)
 ├── tests/
 ├── package.json
 ├── tsconfig.json
@@ -78,6 +86,7 @@ mappings:
   - name: "Backend API"
     template: "backend/api/AGENTS.md"
     targetPath: "src/api/{{appName}}/AGENTS.md"
+    branch: "main"  # Optional: specific branch for this template
 
   - name: "Frontend Components"
     template: "frontend/components/AGENTS.md"
@@ -96,6 +105,12 @@ mappings:
   - name: "API Versioned"
     template: "backend/versioned-api/AGENTS.md"
     targetPath: "src/api/{{apiVersion}}/{{appName}}/AGENTS.md"
+
+  # Nested folder mapping - copies entire folder structure
+  - name: "Angular Project"
+    template: "frontend/angular/"  # Trailing slash = folder
+    targetPath: "src/{{appName}}/"
+    type: "folder"  # Copy entire folder recursively
 
 # Merge configuration
 merge:
@@ -872,6 +887,424 @@ Use 'agent-cookbook resolve' or edit manually
 ❌ Failed to clone repository
 Check SSH keys or repository URL:
 git@github.com:team/templates.git
+```
+
+## New Features Implementation
+
+### 1. Recipes System
+
+Recipes are reusable instructions for common tasks using your internal services and tools. They work similar to Claude skills - providing step-by-step guidance for specific operations.
+
+#### Recipe Structure
+
+Recipes are stored in the template repository under a `recipes/` folder:
+
+```
+agent-templates/
+├── recipes/
+│   ├── send-email.md
+│   ├── handle-entitlements.md
+│   ├── create-api-endpoint.md
+│   ├── setup-database-migration.md
+│   └── configure-auth.md
+```
+
+Each recipe is a markdown file with the following structure:
+
+```markdown
+# Recipe: Send Email Using Internal Service
+
+## Description
+How to send emails using our internal email service with proper formatting and tracking.
+
+## Prerequisites
+- Access to EmailService API
+- Valid API key in environment variables
+- Email templates repository cloned
+
+## Steps
+
+1. **Import the Email Service**
+   ```typescript
+   import { EmailService } from '@company/email-service';
+   ```
+
+2. **Initialize the Service**
+   ```typescript
+   const emailService = new EmailService({
+     apiKey: process.env.EMAIL_API_KEY,
+     environment: process.env.NODE_ENV
+   });
+   ```
+
+3. **Prepare Email Data**
+   ```typescript
+   const emailData = {
+     to: 'user@example.com',
+     template: 'welcome-email',
+     variables: {
+       userName: 'John Doe',
+       activationLink: generateActivationLink()
+     }
+   };
+   ```
+
+4. **Send Email**
+   ```typescript
+   const result = await emailService.send(emailData);
+   ```
+
+## Common Patterns
+
+- **Transactional Emails**: Use templates from `templates/transactional/`
+- **Marketing Emails**: Require opt-in check first
+- **Error Handling**: Always catch and log errors to monitoring service
+
+## Related Services
+- Tracking Service: Log email opens/clicks
+- Template Service: Manage email templates
+- User Preferences: Check email opt-out status
+
+## Examples
+
+See `examples/email-service/` for complete working examples.
+```
+
+#### Recipe Metadata (`.agentcookbook-recipes.yaml`)
+
+In the template repository:
+
+```yaml
+version: "1.0.0"
+recipes:
+  - name: "send-email"
+    path: "recipes/send-email.md"
+    description: "Send emails using internal email service"
+    tags: ["email", "notifications", "backend"]
+    services: ["EmailService", "TrackingService"]
+
+  - name: "handle-entitlements"
+    path: "recipes/handle-entitlements.md"
+    description: "Check and manage user entitlements"
+    tags: ["auth", "permissions", "security"]
+    services: ["EntitlementService", "AuthService"]
+
+  - name: "create-api-endpoint"
+    path: "recipes/create-api-endpoint.md"
+    description: "Create a new API endpoint following company standards"
+    tags: ["api", "backend", "express"]
+    services: ["Express", "ValidationService"]
+```
+
+#### Recipe Commands
+
+```bash
+# List all available recipes
+agent-cookbook recipe list
+
+# Search recipes by tag
+agent-cookbook recipe list --tag email
+
+# View a specific recipe
+agent-cookbook recipe show send-email
+
+# Copy recipe to local project
+agent-cookbook recipe add send-email --output docs/recipes/
+
+# Update recipes from template repo
+agent-cookbook recipe update
+```
+
+#### Recipe Configuration in `.agentcookbook.yaml`
+
+```yaml
+recipes:
+  enabled: true
+  localPath: ".recipes"  # Where to store recipes locally
+  includeInAgents: true  # Reference recipes in AGENTS.md files
+```
+
+#### Integration with AGENTS.md
+
+Recipes can be referenced in AGENTS.md files:
+
+```markdown
+## Common Tasks
+
+For common operations, refer to these recipes:
+
+- {{recipe:send-email}} - Sending emails through our service
+- {{recipe:handle-entitlements}} - Checking user permissions
+- {{recipe:create-api-endpoint}} - Creating new API endpoints
+
+See all recipes: `agent-cookbook recipe list`
+```
+
+### 2. Propose Changes Feature
+
+Allow users to push their modified AGENTS.md files back to the template repository and create a pull request for review.
+
+#### Workflow
+
+1. User modifies AGENTS.md files locally (e.g., improves template section)
+2. User runs `agent-cookbook propose`
+3. CLI creates a new branch in template repo
+4. CLI pushes template sections (not project-specific content) to the branch
+5. CLI creates a pull request with changes
+
+#### Command Implementation
+
+```bash
+agent-cookbook propose [options]
+
+Options:
+  -m, --message <message>    Commit message for the proposal
+  -d, --description <desc>   PR description
+  -t, --title <title>        PR title
+  --templates <names...>     Specific templates to propose
+  --branch <name>            Custom branch name
+  --dry-run                  Show what would be proposed
+```
+
+#### Configuration
+
+```yaml
+propose:
+  enabled: true
+  requireReview: true
+  branchPrefix: "proposed/"
+  prLabels: ["template-update", "community-contribution"]
+  defaultReviewers: ["template-maintainer"]
+```
+
+#### Propose Command Flow
+
+1. **Extract Template Sections**: Parse local AGENTS.md files and extract only the template section (before delimiter)
+2. **Compare with Upstream**: Compare extracted section with current template repo version
+3. **Create Branch**: Create branch in format `proposed/update-{template-name}-{timestamp}`
+4. **Commit Changes**: Commit only the template sections
+5. **Push Branch**: Push to template repository
+6. **Create PR**: Use GitHub API or `gh` CLI to create pull request
+7. **Display PR URL**: Show user the PR URL for tracking
+
+#### Example Output
+
+```bash
+$ agent-cookbook propose --message "Improve API error handling guidelines"
+
+Proposing changes to template repository...
+
+Analyzing changes:
+✓ Backend API: Template section modified
+✓ Frontend Components: No changes detected
+  Database Migrations: Skipped (no local changes)
+
+Creating proposal branch: proposed/update-backend-api-1699123456
+✓ Branch created
+
+Pushing changes to template repository...
+✓ Changes pushed
+
+Creating pull request...
+✓ PR created: https://github.com/team/agent-templates/pull/123
+
+Title: Update Backend API template
+Description: Improve API error handling guidelines
+Reviewers: @template-maintainer
+Labels: template-update, community-contribution
+
+Your proposal is ready for review!
+```
+
+### 3. Nested Folder Support
+
+Enable copying entire folder structures from templates, not just individual files.
+
+#### Template Structure
+
+```
+agent-templates/
+├── backend/
+│   └── api/
+│       └── AGENTS.md
+├── frontend/
+│   └── angular/
+│       ├── AGENTS.md
+│       ├── src/
+│       │   ├── app/
+│       │   │   └── AGENTS.md
+│       │   ├── components/
+│       │   │   └── AGENTS.md
+│       │   └── services/
+│       │       └── AGENTS.md
+│       └── tests/
+│           └── AGENTS.md
+```
+
+#### Configuration
+
+```yaml
+mappings:
+  # Single file mapping (default)
+  - name: "Backend API"
+    template: "backend/api/AGENTS.md"
+    targetPath: "src/api/{{appName}}/AGENTS.md"
+    type: "file"  # Optional: default is file
+
+  # Folder mapping - copies entire structure
+  - name: "Angular Project Structure"
+    template: "frontend/angular/"
+    targetPath: "src/{{appName}}/"
+    type: "folder"
+    recursive: true
+    preserveStructure: true
+```
+
+#### Behavior
+
+When `type: "folder"`:
+- All AGENTS.md files in the folder structure are copied
+- Directory structure is preserved
+- Path variables are resolved in target paths
+- During updates, each AGENTS.md file is merged individually
+
+#### Example
+
+Template repository has:
+```
+frontend/angular/
+├── AGENTS.md
+├── src/
+│   ├── app/AGENTS.md
+│   ├── components/AGENTS.md
+│   └── services/AGENTS.md
+```
+
+With config:
+```yaml
+variables:
+  appName: "payment-service"
+
+mappings:
+  - name: "Angular Structure"
+    template: "frontend/angular/"
+    targetPath: "src/{{appName}}/"
+    type: "folder"
+```
+
+Results in:
+```
+src/payment-service/
+├── AGENTS.md
+├── src/
+│   ├── app/AGENTS.md
+│   ├── components/AGENTS.md
+│   └── services/AGENTS.md
+```
+
+#### Filtering
+
+Support glob patterns for selective copying:
+
+```yaml
+mappings:
+  - name: "Angular Structure"
+    template: "frontend/angular/"
+    targetPath: "src/{{appName}}/"
+    type: "folder"
+    include:
+      - "**/*.md"
+      - "**/AGENTS.*"
+    exclude:
+      - "**/node_modules/**"
+      - "**/.git/**"
+```
+
+### 4. Branch-aware Mappings
+
+Allow different templates to pull from different branches in the git repository.
+
+#### Configuration
+
+```yaml
+repository:
+  url: "git@github.com:yourteam/agent-templates.git"
+  branch: "main"  # Default branch
+
+mappings:
+  # Uses default branch (main)
+  - name: "Backend API"
+    template: "backend/api/AGENTS.md"
+    targetPath: "src/api/{{appName}}/AGENTS.md"
+
+  # Pulls from experimental branch
+  - name: "New Frontend Framework"
+    template: "frontend/react/AGENTS.md"
+    targetPath: "src/frontend/{{appName}}/AGENTS.md"
+    branch: "experimental"
+
+  # Pulls from specific feature branch
+  - name: "GraphQL API"
+    template: "backend/graphql/AGENTS.md"
+    targetPath: "src/graphql/{{appName}}/AGENTS.md"
+    branch: "feature/graphql-support"
+
+  # Pulls from version tag
+  - name: "Legacy API"
+    template: "backend/api-v1/AGENTS.md"
+    targetPath: "src/api-v1/{{appName}}/AGENTS.md"
+    branch: "v1.0.0"  # Git tag
+```
+
+#### Implementation Considerations
+
+1. **Multiple Branch Checkouts**: Template manager needs to handle multiple branch checkouts
+   - Option A: Clone repo multiple times (one per branch)
+   - Option B: Use git worktrees
+   - Option C: Checkout and cache files from each branch
+
+2. **Cache Strategy**: Cache structure per branch
+   ```
+   .agent-cookbook-cache/
+   ├── agent-templates/
+   │   ├── main/
+   │   │   └── backend/api/AGENTS.md
+   │   ├── experimental/
+   │   │   └── frontend/react/AGENTS.md
+   │   └── feature-graphql-support/
+   │       └── backend/graphql/AGENTS.md
+   ```
+
+3. **Update Behavior**: Each branch is updated independently
+
+#### Command Updates
+
+```bash
+# Update all templates (all branches)
+agent-cookbook update
+
+# Update only templates from specific branch
+agent-cookbook update --branch experimental
+
+# Show branch info for templates
+agent-cookbook config list --show-branches
+```
+
+#### Display Branch Info
+
+```bash
+$ agent-cookbook config list
+
+Mappings:
+  - Backend API
+    Template: backend/api/AGENTS.md
+    Branch: main (default)
+    Target: src/api/{{appName}}/AGENTS.md
+
+  - New Frontend Framework
+    Template: frontend/react/AGENTS.md
+    Branch: experimental
+    Target: src/frontend/{{appName}}/AGENTS.md
 ```
 
 ## Advanced Features (Future Enhancements)

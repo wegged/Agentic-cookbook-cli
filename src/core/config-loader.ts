@@ -28,6 +28,18 @@ const DEFAULT_CONFIG: AgentCookbookConfig = {
       "Project Specific",
     ],
   },
+  recipes: {
+    enabled: true,
+    localPath: ".recipes",
+    includeInAgents: true,
+  },
+  propose: {
+    enabled: true,
+    requireReview: true,
+    branchPrefix: "proposed/",
+    prLabels: ["template-update", "community-contribution"],
+    defaultReviewers: [],
+  },
 };
 
 /**
@@ -63,6 +75,8 @@ export class ConfigLoader {
       repository: { ...DEFAULT_CONFIG.repository, ...config.repository },
       merge: { ...DEFAULT_CONFIG.merge, ...config.merge },
       validation: { ...DEFAULT_CONFIG.validation, ...config.validation },
+      recipes: config.recipes ? { ...DEFAULT_CONFIG.recipes, ...config.recipes } : DEFAULT_CONFIG.recipes,
+      propose: config.propose ? { ...DEFAULT_CONFIG.propose, ...config.propose } : DEFAULT_CONFIG.propose,
       variables: config.variables || {},
       mappings: config.mappings || [],
     };

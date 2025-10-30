@@ -6,6 +6,7 @@ import { TemplateManager } from "../core/template-manager";
 import { PathResolver } from "../core/path-resolver";
 import { TemplateMerger } from "../core/merger";
 import { Logger } from "../utils/logger";
+import { FileCopyOptions } from "../core/file-copier";
 
 /**
  * Update command - Pull latest templates and merge with project-specific content
@@ -29,24 +30,6 @@ export async function updateCommand(
 
     const config = await configLoader.load();
 
-    // Sync template repository
-    Logger.step("Fetching latest templates");
-    const stopLoading = Logger.loading("Updating repository...");
-
-    const templateManager = new TemplateManager();
-    try {
-      await templateManager.syncRepository(
-        config.repository.url,
-        config.repository.branch
-      );
-      stopLoading();
-      Logger.success("Template repository updated");
-    } catch (error: any) {
-      stopLoading();
-      Logger.error(`Failed to update repository: ${error.message}`);
-      process.exit(1);
-    }
-
     // Filter mappings if specific templates requested
     let mappingsToUpdate = config.mappings;
     if (templates.length > 0) {
@@ -55,6 +38,46 @@ export async function updateCommand(
       );
       if (mappingsToUpdate.length === 0) {
         Logger.error(`No mappings found matching: ${templates.join(", ")}`);
+        process.exit(1);
+      }
+    }
+
+    // Filter mappings by branch if --branch flag provided
+    if (options.branch) {
+      mappingsToUpdate = mappingsToUpdate.filter((m) => {
+        const mappingBranch = m.branch || config.repository.branch;
+        return mappingBranch === options.branch;
+      });
+      if (mappingsToUpdate.length === 0) {
+        Logger.error(`No mappings found using branch: ${options.branch}`);
+        process.exit(1);
+      }
+      Logger.info(`Updating templates from branch: ${options.branch}`);
+    }
+
+    // Collect all unique branches from mappings to update
+    const branches = new Set<string>();
+    for (const mapping of mappingsToUpdate) {
+      const branch = mapping.branch || config.repository.branch;
+      branches.add(branch);
+    }
+
+    // Sync template repository for each branch
+    Logger.step("Fetching latest templates");
+    const templateManager = new TemplateManager();
+
+    for (const branch of Array.from(branches)) {
+      const stopLoading = Logger.loading(`Updating repository (branch: ${branch})...`);
+      try {
+        await templateManager.syncRepository(
+          config.repository.url,
+          branch
+        );
+        stopLoading();
+        Logger.success(`Template repository updated (branch: ${branch})`);
+      } catch (error: any) {
+        stopLoading();
+        Logger.error(`Failed to update repository branch ${branch}: ${error.message}`);
         process.exit(1);
       }
     }
@@ -73,28 +96,214 @@ export async function updateCommand(
 
     for (const mapping of mappingsToUpdate) {
       try {
-        // Resolve target path
-        const resolved = pathResolver.resolvePath(mapping.targetPath);
+        // Determine which branch to use for this mapping
+        const branch = mapping.branch || config.repository.branch;
 
-        // Read new template
-        const newTemplate = await templateManager.readTemplate(
-          config.repository.url,
-          mapping.template
-        );
+        // Check if this is a folder mapping
+        const isFolder = mapping.type === "folder";
 
-        // Check if file exists locally
-        if (await fs.pathExists(resolved.resolved)) {
-          // File exists - merge
-          const existingContent = await fs.readFile(
-            resolved.resolved,
-            "utf-8"
+        if (isFolder) {
+          // Handle folder mapping
+          const fileCopyOptions: FileCopyOptions = {
+            recursive: mapping.recursive !== false,
+            preserveStructure: mapping.preserveStructure !== false,
+            include: mapping.include || ["**/AGENTS.md", "**/AGENTS.*"],
+            exclude: mapping.exclude || ["**/node_modules/**", "**/.git/**"],
+          };
+
+          // Get list of files from template folder
+          const templateFiles = await templateManager.listFolderFiles(
+            config.repository.url,
+            mapping.template,
+            branch,
+            fileCopyOptions
           );
 
-          if (options.force) {
-            // Force overwrite
+          if (templateFiles.length === 0) {
+            Logger.warning(
+              `No files found in template folder: ${mapping.template}`
+            );
+            continue;
+          }
+
+          // Process each file in the folder
+          for (const relativeFilePath of templateFiles) {
+            // Resolve target base path
+            const resolvedBase = pathResolver.resolvePath(mapping.targetPath);
+
+            // Build target path preserving structure
+            const targetPath = path.join(
+              resolvedBase.resolved,
+              relativeFilePath
+            );
+
+            // Read new template file
+            const templateFilePath = path.join(mapping.template, relativeFilePath);
+            const newTemplate = await templateManager.readTemplate(
+              config.repository.url,
+              templateFilePath,
+              branch
+            );
+
+            // Check if file exists locally
+            if (await fs.pathExists(targetPath)) {
+              // File exists - merge
+              const existingContent = await fs.readFile(targetPath, "utf-8");
+
+              if (options.force) {
+                // Force overwrite
+                if (options.dryRun) {
+                  Logger.info(`Would overwrite: ${Logger.formatPath(targetPath)}`);
+                } else {
+                  await fs.writeFile(
+                    targetPath,
+                    merger.ensureDelimiter(newTemplate),
+                    "utf-8"
+                  );
+                  Logger.success(`Overwritten ${Logger.formatPath(targetPath)}`);
+                }
+                updatedCount++;
+              } else {
+                // Smart merge
+                const templateSection = merger.getTemplateSection(newTemplate);
+                const existingTemplateSection =
+                  merger.getTemplateSection(existingContent);
+
+                if (!merger.hasChanges(templateSection, existingTemplateSection)) {
+                  Logger.info(`No changes: ${Logger.formatPath(targetPath)}`);
+                  noChangeCount++;
+                } else {
+                  const mergeResult = merger.merge(
+                    newTemplate,
+                    existingContent,
+                    config.merge.strategy
+                  );
+
+                  if (mergeResult.hasConflict) {
+                    Logger.warning(
+                      `Conflict detected: ${Logger.formatPath(targetPath)}`
+                    );
+                    conflicts.push(targetPath);
+                    conflictCount++;
+                  } else {
+                    if (options.dryRun) {
+                      Logger.info(`Would update: ${Logger.formatPath(targetPath)}`);
+                    } else {
+                      await fs.writeFile(
+                        targetPath,
+                        mergeResult.content,
+                        "utf-8"
+                      );
+                      Logger.success(`Updated ${Logger.formatPath(targetPath)}`);
+                    }
+                    updatedCount++;
+                  }
+                }
+              }
+            } else {
+              // File doesn't exist - create it
+              await fs.ensureDir(path.dirname(targetPath));
+
+              if (options.dryRun) {
+                Logger.info(`Would create: ${Logger.formatPath(targetPath)}`);
+              } else {
+                await fs.writeFile(
+                  targetPath,
+                  merger.ensureDelimiter(newTemplate),
+                  "utf-8"
+                );
+                Logger.success(`Created ${Logger.formatPath(targetPath)}`);
+              }
+              createdCount++;
+            }
+          }
+        } else {
+          // Handle single file mapping (default behavior)
+          // Resolve target path
+          const resolved = pathResolver.resolvePath(mapping.targetPath);
+
+          // Read new template from the appropriate branch
+          const newTemplate = await templateManager.readTemplate(
+            config.repository.url,
+            mapping.template,
+            branch
+          );
+
+          // Check if file exists locally
+          if (await fs.pathExists(resolved.resolved)) {
+            // File exists - merge
+            const existingContent = await fs.readFile(
+              resolved.resolved,
+              "utf-8"
+            );
+
+            if (options.force) {
+              // Force overwrite
+              if (options.dryRun) {
+                Logger.info(
+                  `Would overwrite: ${Logger.formatPath(resolved.resolved)}`
+                );
+              } else {
+                await fs.writeFile(
+                  resolved.resolved,
+                  merger.ensureDelimiter(newTemplate),
+                  "utf-8"
+                );
+                Logger.success(
+                  `Overwritten ${Logger.formatPath(resolved.resolved)}`
+                );
+              }
+              updatedCount++;
+            } else {
+              // Smart merge
+              const templateSection = merger.getTemplateSection(newTemplate);
+              const existingTemplateSection =
+                merger.getTemplateSection(existingContent);
+
+              if (!merger.hasChanges(templateSection, existingTemplateSection)) {
+                Logger.info(
+                  `No changes: ${Logger.formatPath(resolved.resolved)}`
+                );
+                noChangeCount++;
+              } else {
+                const mergeResult = merger.merge(
+                  newTemplate,
+                  existingContent,
+                  config.merge.strategy
+                );
+
+                if (mergeResult.hasConflict) {
+                  Logger.warning(
+                    `Conflict detected: ${Logger.formatPath(resolved.resolved)}`
+                  );
+                  conflicts.push(resolved.resolved);
+                  conflictCount++;
+                } else {
+                  if (options.dryRun) {
+                    Logger.info(
+                      `Would update: ${Logger.formatPath(resolved.resolved)}`
+                    );
+                  } else {
+                    await fs.writeFile(
+                      resolved.resolved,
+                      mergeResult.content,
+                      "utf-8"
+                    );
+                    Logger.success(
+                      `Updated ${Logger.formatPath(resolved.resolved)}`
+                    );
+                  }
+                  updatedCount++;
+                }
+              }
+            }
+          } else {
+            // File doesn't exist - create it
+            await fs.ensureDir(path.dirname(resolved.resolved));
+
             if (options.dryRun) {
               Logger.info(
-                `Would overwrite: ${Logger.formatPath(resolved.resolved)}`
+                `Would create: ${Logger.formatPath(resolved.resolved)}`
               );
             } else {
               await fs.writeFile(
@@ -102,71 +311,10 @@ export async function updateCommand(
                 merger.ensureDelimiter(newTemplate),
                 "utf-8"
               );
-              Logger.success(
-                `Overwritten ${Logger.formatPath(resolved.resolved)}`
-              );
+              Logger.success(`Created ${Logger.formatPath(resolved.resolved)}`);
             }
-            updatedCount++;
-          } else {
-            // Smart merge
-            const templateSection = merger.getTemplateSection(newTemplate);
-            const existingTemplateSection =
-              merger.getTemplateSection(existingContent);
-
-            if (!merger.hasChanges(templateSection, existingTemplateSection)) {
-              Logger.info(
-                `No changes: ${Logger.formatPath(resolved.resolved)}`
-              );
-              noChangeCount++;
-            } else {
-              const mergeResult = merger.merge(
-                newTemplate,
-                existingContent,
-                config.merge.strategy
-              );
-
-              if (mergeResult.hasConflict) {
-                Logger.warning(
-                  `Conflict detected: ${Logger.formatPath(resolved.resolved)}`
-                );
-                conflicts.push(resolved.resolved);
-                conflictCount++;
-              } else {
-                if (options.dryRun) {
-                  Logger.info(
-                    `Would update: ${Logger.formatPath(resolved.resolved)}`
-                  );
-                } else {
-                  await fs.writeFile(
-                    resolved.resolved,
-                    mergeResult.content,
-                    "utf-8"
-                  );
-                  Logger.success(
-                    `Updated ${Logger.formatPath(resolved.resolved)}`
-                  );
-                }
-                updatedCount++;
-              }
-            }
+            createdCount++;
           }
-        } else {
-          // File doesn't exist - create it
-          await fs.ensureDir(path.dirname(resolved.resolved));
-
-          if (options.dryRun) {
-            Logger.info(
-              `Would create: ${Logger.formatPath(resolved.resolved)}`
-            );
-          } else {
-            await fs.writeFile(
-              resolved.resolved,
-              merger.ensureDelimiter(newTemplate),
-              "utf-8"
-            );
-            Logger.success(`Created ${Logger.formatPath(resolved.resolved)}`);
-          }
-          createdCount++;
         }
       } catch (error: any) {
         Logger.error(
