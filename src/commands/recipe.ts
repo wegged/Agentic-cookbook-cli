@@ -34,7 +34,7 @@ export async function recipeCommand(
     }
 
     const templateManager = new TemplateManager();
-    const repoPath = templateManager.getRepoPath(config.repository.url);
+    const repoPath = templateManager.getRepoPath(config.repository.url, config.repository.branch);
     const localPath = config.recipes?.localPath || ".recipes";
     const recipeManager = new RecipeManager(repoPath, localPath);
 

@@ -1,0 +1,26 @@
+version: "1.0.0"
+templates:
+  - path: "backend/api/AGENTS.md"
+    description: "REST API endpoint development guidelines"
+    requiredVariables: ["appName"]
+
+  - path: "backend/database/AGENTS.md"
+    description: "Database schemas, migrations, and data access patterns"
+    requiredVariables: ["appName"]
+
+  - path: "backend/graphql/AGENTS.md"
+    description: "GraphQL API development guidelines"
+    requiredVariables: ["appName"]
+
+  - path: "frontend/react/AGENTS.md"
+    description: "React component development best practices"
+    requiredVariables: ["appName"]
+
+  - path: "frontend/angular/"
+    description: "Complete Angular project structure with multiple AGENTS.md files"
+    requiredVariables: ["appName"]
+    type: "folder"
+
+  - path: "testing/AGENTS.md"
+    description: "Testing strategies and patterns"
+    requiredVariables: []

@@ -1,0 +1,19 @@
+version: "1.0.0"
+recipes:
+  - name: "send-email"
+    path: "recipes/send-email.md"
+    description: "Send emails using internal email service with proper formatting and tracking"
+    tags: ["email", "notifications", "backend", "communication"]
+    services: ["EmailService", "TrackingService", "TemplateService"]
+
+  - name: "handle-entitlements"
+    path: "recipes/handle-entitlements.md"
+    description: "Check and manage user entitlements, permissions, and access control"
+    tags: ["auth", "permissions", "security", "rbac", "backend"]
+    services: ["EntitlementService", "AuthService", "RoleService", "CacheService"]
+
+  - name: "create-api-endpoint"
+    path: "recipes/create-api-endpoint.md"
+    description: "Create a new REST API endpoint following company standards and best practices"
+    tags: ["api", "backend", "express", "rest", "development"]
+    services: ["Express", "ValidationService", "DatabaseService"]
