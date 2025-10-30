@@ -1,0 +1,69 @@
+# Agent Cookbook Configuration for Git Test Project
+
+repository:
+  url: "file:///home/user/Agentic-cookbook-cli/example-templates"
+  branch: "main"
+
+variables:
+  appName: "payment-service"
+  namespace: "com.company.payments"
+  apiVersion: "v2"
+
+mappings:
+  # Single file mappings
+  - name: "Backend API"
+    template: "backend/api/AGENTS.md"
+    targetPath: "src/api/{{appName}}/AGENTS.md"
+
+  - name: "Database Layer"
+    template: "backend/database/AGENTS.md"
+    targetPath: "src/database/{{appName}}/AGENTS.md"
+
+  - name: "GraphQL API"
+    template: "backend/graphql/AGENTS.md"
+    targetPath: "src/graphql/{{appName}}/AGENTS.md"
+    branch: "experimental"
+
+  - name: "React Frontend"
+    template: "frontend/react/AGENTS.md"
+    targetPath: "src/frontend/{{appName}}/AGENTS.md"
+
+  # Folder mapping - copies entire Angular folder structure
+  - name: "Angular Project Structure"
+    template: "frontend/angular/"
+    targetPath: "src/angular-{{appName}}/"
+    type: "folder"
+    recursive: true
+    preserveStructure: true
+    include:
+      - "**/*.md"
+    exclude:
+      - "**/node_modules/**"
+
+merge:
+  delimiter: "<!-- PROJECT_SPECIFIC -->"
+  strategy: "preserve-project"
+  conflictResolution: "manual"
+
+validation:
+  requireDelimiter: true
+  maxFileSize: "50kb"
+  allowedSections:
+    - "Overview"
+    - "Folder Purpose"
+    - "Agent Instructions"
+    - "Project Specific"
+
+recipes:
+  enabled: true
+  localPath: ".recipes"
+  includeInAgents: true
+
+propose:
+  enabled: true
+  requireReview: true
+  branchPrefix: "proposed/"
+  prLabels:
+    - template-update
+    - community-contribution
+  defaultReviewers: []
