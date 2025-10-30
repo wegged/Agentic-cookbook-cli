@@ -455,11 +455,43 @@ All git operations tested and verified:
 
 **No issues found** - All features work as designed with proper git repositories!
 
+## Automated Test Suite
+
+### ✅ Comprehensive Tests Added
+
+**Test Framework**: Jest with ts-jest
+**Total Tests**: 58 tests, all passing ✅
+**Test Files**: 3
+
+#### tests/path-resolver.test.ts (31 tests)
+- Variable resolution in paths (`{{variable}}` syntax)
+- Variable extraction and validation
+- Variable updates and management
+- Edge cases (empty strings, complex names, etc.)
+
+#### tests/merger.test.ts (19 tests)
+- Smart merge with delimiter-based content splitting
+- Project section preservation
+- Template section updates
+- hasChanges detection with whitespace normalization
+- Edge cases (unicode, special characters, very long content)
+
+#### tests/template-manager.test.ts (8 tests)
+- Git repository cloning and syncing
+- Multi-branch support and isolation
+- Template reading from different branches
+- Cache management with branch-specific directories
+- Integration tests with actual git repository
+
+**Test Coverage**: Core functionality including path resolution, smart merging, and git operations
+
+**Run Tests**: `npm test`
+
 ## Next Steps
 
 1. ✅ Git integration fully tested
 2. ✅ Validation with folder mappings fixed and tested
-3. ⏭️ Test with remote GitHub repository
-4. ⏭️ Test propose command with actual PR creation
-5. ⏭️ Add integration tests for git operations
+3. ✅ Integration tests for git operations added (58 tests passing)
+4. ⏭️ Test with remote GitHub repository
+5. ⏭️ Test propose command with actual PR creation
 6. ⏭️ Document git workflows in user guide
