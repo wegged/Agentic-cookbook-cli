@@ -41,6 +41,11 @@ export async function validateCommand(options: ValidateOptions): Promise<void> {
 
     for (const mapping of config.mappings) {
       try {
+        // Skip folder-type mappings (they contain multiple files)
+        if (mapping.type === "folder") {
+          continue;
+        }
+
         // Resolve target path
         const resolved = pathResolver.resolvePath(mapping.targetPath);
 
